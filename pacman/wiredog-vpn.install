@@ -1,0 +1,81 @@
+post_install() {
+  mkdir -p /var/run/wiredog /var/run/wireguard /var/run/amneziawg
+  chmod 755 /var/run/wiredog /var/run/wireguard /var/run/amneziawg
+
+  mkdir -p /var/log/wiredog
+  chmod 755 /var/log/wiredog
+
+  mkdir -p /etc/wireguard
+  chmod 700 /etc/wireguard
+
+  if [ -f /opt/WireDogVPN/resources/bin/awg ]; then
+    chmod 755 /opt/WireDogVPN/resources/bin/awg
+  fi
+  if [ -f /opt/WireDogVPN/resources/bin/awg-go ]; then
+    chmod 755 /opt/WireDogVPN/resources/bin/awg-go
+  fi
+
+  if [ -f /opt/WireDogVPN/resources/debian/wiredog-vpn.service ]; then
+    cp /opt/WireDogVPN/resources/debian/wiredog-vpn.service /etc/systemd/system/
+    chmod 644 /etc/systemd/system/wiredog-vpn.service
+  fi
+
+  if [ -f /opt/WireDogVPN/resources/polkit/com.wiredog.vpn.policy ]; then
+    mkdir -p /usr/share/polkit-1/actions
+    cp /opt/WireDogVPN/resources/polkit/com.wiredog.vpn.policy /usr/share/polkit-1/actions/
+    chmod 644 /usr/share/polkit-1/actions/com.wiredog.vpn.policy
+  fi
+
+  if [ -f /opt/WireDogVPN/chrome-sandbox ]; then
+    chown root:root /opt/WireDogVPN/chrome-sandbox
+    chmod 4755 /opt/WireDogVPN/chrome-sandbox
+  fi
+
+  ln -sf /opt/WireDogVPN/wiredog-vpn /usr/bin/wiredog-vpn
+
+  cat > /etc/tmpfiles.d/wiredog-vpn.conf <<'TMPFILES'
+d /var/run/wiredog    0755 root root -
+d /var/run/wireguard  0755 root root -
+d /var/run/amneziawg  0755 root root -
+TMPFILES
+
+  systemctl daemon-reload
+  systemctl enable wiredog-vpn.service
+  systemctl start wiredog-vpn.service || true
+}
+
+post_upgrade() {
+  post_install
+}
+
+pre_remove() {
+  if ip link show wg0 > /dev/null 2>&1; then
+    wg-quick down wg0 || true
+  fi
+
+  iptables -D OUTPUT -j WIREDOG_OUTPUT 2>/dev/null || true
+  iptables -D INPUT -j WIREDOG_INPUT 2>/dev/null || true
+  ip6tables -D OUTPUT -j WIREDOG_IPV6 2>/dev/null || true
+  ip6tables -D INPUT -j WIREDOG_IPV6 2>/dev/null || true
+  iptables -F WIREDOG_OUTPUT 2>/dev/null || true
+  iptables -F WIREDOG_INPUT 2>/dev/null || true
+  iptables -F WIREDOG_DNS 2>/dev/null || true
+  iptables -X WIREDOG_OUTPUT 2>/dev/null || true
+  iptables -X WIREDOG_INPUT 2>/dev/null || true
+  iptables -X WIREDOG_DNS 2>/dev/null || true
+  ip6tables -F WIREDOG_IPV6 2>/dev/null || true
+  ip6tables -X WIREDOG_IPV6 2>/dev/null || true
+
+  systemctl stop wiredog-vpn.service 2>/dev/null || true
+  systemctl disable wiredog-vpn.service 2>/dev/null || true
+}
+
+post_remove() {
+  rm -f /etc/systemd/system/wiredog-vpn.service
+  rm -f /usr/bin/wiredog-vpn
+  rm -f /usr/share/polkit-1/actions/com.wiredog.vpn.policy
+  rm -f /etc/tmpfiles.d/wiredog-vpn.conf
+  rm -f /etc/wireguard/wg0.conf
+  rm -rf /var/run/wiredog
+  systemctl daemon-reload
+}

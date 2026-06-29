@@ -1,0 +1,49 @@
+#!/bin/bash
+set -e
+
+echo "Removing WireDog VPN..."
+
+if ip link show wg0 > /dev/null 2>&1; then
+    echo "Stopping active VPN connection..."
+    wg-quick down wg0 || true
+fi
+
+echo "Cleaning up firewall rules..."
+
+iptables -D OUTPUT -j WIREDOG_OUTPUT 2>/dev/null || true
+iptables -D INPUT -j WIREDOG_INPUT 2>/dev/null || true
+ip6tables -D OUTPUT -j WIREDOG_IPV6 2>/dev/null || true
+ip6tables -D INPUT -j WIREDOG_IPV6 2>/dev/null || true
+
+iptables -F WIREDOG_OUTPUT 2>/dev/null || true
+iptables -F WIREDOG_INPUT 2>/dev/null || true
+iptables -F WIREDOG_DNS 2>/dev/null || true
+iptables -X WIREDOG_OUTPUT 2>/dev/null || true
+iptables -X WIREDOG_INPUT 2>/dev/null || true
+iptables -X WIREDOG_DNS 2>/dev/null || true
+
+ip6tables -F WIREDOG_IPV6 2>/dev/null || true
+ip6tables -X WIREDOG_IPV6 2>/dev/null || true
+
+if systemctl is-active wiredog-vpn.service > /dev/null 2>&1; then
+    echo "Stopping WireDog VPN service..."
+    systemctl stop wiredog-vpn.service || true
+fi
+
+if systemctl is-enabled wiredog-vpn.service > /dev/null 2>&1; then
+    echo "Disabling WireDog VPN service..."
+    systemctl disable wiredog-vpn.service || true
+fi
+
+rm -f /etc/systemd/system/wiredog-vpn.service
+systemctl daemon-reload
+
+rm -f /usr/bin/wiredog-vpn
+rm -f /usr/share/polkit-1/actions/com.wiredog.vpn.policy
+rm -f /etc/tmpfiles.d/wiredog-vpn.conf
+rm -f /etc/wireguard/wg0.conf
+rm -rf /var/run/wiredog
+
+echo "WireDog VPN removed successfully."
+
+exit 0

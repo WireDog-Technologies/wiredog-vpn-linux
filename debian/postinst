@@ -1,0 +1,88 @@
+#!/bin/bash
+set -e
+
+# Post-installation script for WireDog VPN
+
+echo "Setting up WireDog VPN..."
+
+# Create runtime directory for Unix socket
+mkdir -p /var/run/wiredog
+chmod 755 /var/run/wiredog
+echo "Created /var/run/wiredog"
+
+# Create log directory
+mkdir -p /var/log/wiredog
+chmod 755 /var/log/wiredog
+echo "Created /var/log/wiredog"
+
+# Create WireGuard config directory if it doesn't exist
+mkdir -p /etc/wireguard
+chmod 700 /etc/wireguard
+echo "Ensured /etc/wireguard exists"
+
+# Create socket directories used by awg-go userspace daemon
+mkdir -p /var/run/wireguard
+chmod 755 /var/run/wireguard
+echo "Created /var/run/wireguard"
+
+mkdir -p /var/run/amneziawg
+chmod 755 /var/run/amneziawg
+echo "Created /var/run/amneziawg"
+
+# Make bundled AWG binaries executable
+if [ -f /opt/WireDogVPN/resources/bin/awg ]; then
+    chmod 755 /opt/WireDogVPN/resources/bin/awg
+    echo "Set permissions on bundled awg binary"
+fi
+if [ -f /opt/WireDogVPN/resources/bin/awg-go ]; then
+    chmod 755 /opt/WireDogVPN/resources/bin/awg-go
+    echo "Set permissions on bundled awg-go binary"
+fi
+
+# Install systemd service
+if [ -f /opt/WireDogVPN/resources/debian/wiredog-vpn.service ]; then
+    cp /opt/WireDogVPN/resources/debian/wiredog-vpn.service /etc/systemd/system/
+    chmod 644 /etc/systemd/system/wiredog-vpn.service
+    echo "Installed systemd service"
+fi
+
+# Install polkit policy
+if [ -f /opt/WireDogVPN/resources/polkit/com.wiredog.vpn.policy ]; then
+    mkdir -p /usr/share/polkit-1/actions
+    cp /opt/WireDogVPN/resources/polkit/com.wiredog.vpn.policy /usr/share/polkit-1/actions/
+    chmod 644 /usr/share/polkit-1/actions/com.wiredog.vpn.policy
+    echo "Installed polkit policy"
+fi
+
+# Set chrome-sandbox SUID permissions (required by Electron)
+if [ -f /opt/WireDogVPN/chrome-sandbox ]; then
+    chown root:root /opt/WireDogVPN/chrome-sandbox
+    chmod 4755 /opt/WireDogVPN/chrome-sandbox
+    echo "Set chrome-sandbox permissions"
+fi
+
+# Create symlink so 'wiredog-vpn' works from terminal
+ln -sf /opt/WireDogVPN/wiredog-vpn /usr/bin/wiredog-vpn
+echo "Created /usr/bin/wiredog-vpn symlink"
+
+# Install tmpfiles.d config so runtime dirs survive reboot
+cat > /etc/tmpfiles.d/wiredog-vpn.conf <<'TMPFILES'
+d /var/run/wiredog    0755 root root -
+d /var/run/wireguard  0755 root root -
+d /var/run/amneziawg  0755 root root -
+TMPFILES
+echo "Installed tmpfiles.d config"
+
+# Reload systemd
+systemctl daemon-reload
+
+# Enable and start service
+systemctl enable wiredog-vpn.service
+systemctl start wiredog-vpn.service || true
+
+echo ""
+echo "WireDog VPN installation complete!"
+echo "You can start the application from your applications menu."
+echo ""
+
+exit 0
