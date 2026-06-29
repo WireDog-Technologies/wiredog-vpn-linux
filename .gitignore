@@ -1,0 +1,86 @@
+# -----------------------------
+# Linux / OS-related
+# -----------------------------
+*~
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# -----------------------------
+# Python-related (if your VPN client uses Python)
+# -----------------------------
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.pdb
+*.egg
+*.egg-info/
+dist/
+build/
+!build/icons/
+!build/icons/*.png
+*.manifest
+*.spec
+
+# -----------------------------
+# Virtualenv / pipenv / poetry
+# -----------------------------
+venv/
+.env
+.env.*
+.venv/
+pip-wheel-metadata/
+__pypackages__/
+
+# -----------------------------
+# Logs and temporary files
+# -----------------------------
+*.log
+*.tmp
+*.bak
+*.swp
+*.pid
+*.lock
+
+# -----------------------------
+# IDE / Editor files
+# -----------------------------
+.vscode/
+.idea/
+*.iml
+
+# -----------------------------
+# Git ignored project-specific files
+# -----------------------------
+CLAUDE.md
+docs/
+.env
+tasks/
+TEST_PLAN.md
+
+# -----------------------------
+# Compiled binaries / VPN build artifacts
+# -----------------------------
+service/dist/
+*.out
+*.o
+*.so
+*.a
+*.dll
+*.exe
+
+# -----------------------------
+# Package manager / system files
+# -----------------------------
+node_modules/
+npm-debug.log
+yarn-debug.log
+yarn-error.log
+*.deb
+*.rpm
+release/
+
+.claude/
+.github/

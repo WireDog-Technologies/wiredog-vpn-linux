@@ -1,0 +1,73 @@
+#!/bin/bash
+set -e
+
+echo "Setting up WireDog VPN..."
+
+mkdir -p /var/run/wiredog
+chmod 755 /var/run/wiredog
+echo "Created /var/run/wiredog"
+
+mkdir -p /var/log/wiredog
+chmod 755 /var/log/wiredog
+echo "Created /var/log/wiredog"
+
+mkdir -p /etc/wireguard
+chmod 700 /etc/wireguard
+echo "Ensured /etc/wireguard exists"
+
+mkdir -p /var/run/wireguard
+chmod 755 /var/run/wireguard
+echo "Created /var/run/wireguard"
+
+mkdir -p /var/run/amneziawg
+chmod 755 /var/run/amneziawg
+echo "Created /var/run/amneziawg"
+
+if [ -f /opt/WireDogVPN/resources/bin/awg ]; then
+    chmod 755 /opt/WireDogVPN/resources/bin/awg
+    echo "Set permissions on bundled awg binary"
+fi
+if [ -f /opt/WireDogVPN/resources/bin/awg-go ]; then
+    chmod 755 /opt/WireDogVPN/resources/bin/awg-go
+    echo "Set permissions on bundled awg-go binary"
+fi
+
+if [ -f /opt/WireDogVPN/resources/debian/wiredog-vpn.service ]; then
+    cp /opt/WireDogVPN/resources/debian/wiredog-vpn.service /etc/systemd/system/
+    chmod 644 /etc/systemd/system/wiredog-vpn.service
+    echo "Installed systemd service"
+fi
+
+if [ -f /opt/WireDogVPN/resources/polkit/com.wiredog.vpn.policy ]; then
+    mkdir -p /usr/share/polkit-1/actions
+    cp /opt/WireDogVPN/resources/polkit/com.wiredog.vpn.policy /usr/share/polkit-1/actions/
+    chmod 644 /usr/share/polkit-1/actions/com.wiredog.vpn.policy
+    echo "Installed polkit policy"
+fi
+
+if [ -f /opt/WireDogVPN/chrome-sandbox ]; then
+    chown root:root /opt/WireDogVPN/chrome-sandbox
+    chmod 4755 /opt/WireDogVPN/chrome-sandbox
+    echo "Set chrome-sandbox permissions"
+fi
+
+ln -sf /opt/WireDogVPN/wiredog-vpn /usr/bin/wiredog-vpn
+echo "Created /usr/bin/wiredog-vpn symlink"
+
+cat > /etc/tmpfiles.d/wiredog-vpn.conf <<'TMPFILES'
+d /var/run/wiredog    0755 root root -
+d /var/run/wireguard  0755 root root -
+d /var/run/amneziawg  0755 root root -
+TMPFILES
+echo "Installed tmpfiles.d config"
+
+systemctl daemon-reload
+systemctl enable wiredog-vpn.service
+systemctl start wiredog-vpn.service || true
+
+echo ""
+echo "WireDog VPN installation complete!"
+echo "You can start the application from your applications menu."
+echo ""
+
+exit 0

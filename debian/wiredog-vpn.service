@@ -1,0 +1,38 @@
+[Unit]
+Description=WireDog VPN Service
+Documentation=https://wiredogvpn.com
+After=network.target network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/node /opt/WireDogVPN/resources/service/index.js
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=wiredog-vpn
+
+# Run as root (required for iptables and WireGuard)
+User=root
+Group=root
+
+# Security hardening
+ProtectSystem=strict
+ProtectHome=read-only
+PrivateTmp=true
+NoNewPrivileges=false
+ReadWritePaths=/etc/wireguard /var/run/wiredog /var/run/wireguard /var/run/amneziawg /var/log/wiredog
+
+# Environment
+Environment=NODE_ENV=production
+
+# Recreate runtime directories on boot (tmpfs wipes /var/run)
+# wiredog:    Unix socket for Electron ↔ service IPC
+# wireguard:  legacy path (kept for safety)
+# amneziawg:  UAPI socket created by awg-go at /var/run/amneziawg/wg0.sock
+RuntimeDirectory=wiredog wireguard amneziawg
+RuntimeDirectoryMode=0755
+
+[Install]
+WantedBy=multi-user.target

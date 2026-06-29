@@ -1,0 +1,103 @@
+{
+  "appId": "com.wiredog.vpn",
+  "productName": "WireDogVPN",
+  "executableName": "wiredog-vpn",
+  "artifactName": "WireDog-VPN-${version}.${ext}",
+  "directories": {
+    "output": "release"
+  },
+  "files": [
+    "dist/**/*",
+    "electron/**/*",
+    "node_modules/**/*",
+    "package.json"
+  ],
+  "extraResources": [
+    {
+      "from": ".env",
+      "to": ".env"
+    },
+    {
+      "from": "src/assets/logos/wiredog-minimal-navy-with-bg_1024x1024_ios.png",
+      "to": "icon.png"
+    },
+    {
+      "from": "public/favicon-disconnected.png",
+      "to": "favicon-disconnected.png"
+    },
+    {
+      "from": "public/favicon-connected.png",
+      "to": "favicon-connected.png"
+    },
+    {
+      "from": "service/dist/index.js",
+      "to": "service/index.js"
+    },
+    {
+      "from": "debian",
+      "to": "debian"
+    },
+    {
+      "from": "polkit",
+      "to": "polkit"
+    },
+    {
+      "from": "resources/bin",
+      "to": "bin"
+    },
+    {
+      "from": "rpm",
+      "to": "rpm"
+    }
+  ],
+  "linux": {
+    "icon": "build/icons",
+    "category": "Network",
+    "target": [
+      {
+        "target": "deb",
+        "arch": ["x64"]
+      },
+      {
+        "target": "rpm",
+        "arch": ["x64"]
+      },
+      {
+        "target": "pacman",
+        "arch": ["x64"]
+      },
+      {
+        "target": "AppImage",
+        "arch": ["x64"]
+      }
+    ],
+    "maintainer": "WireDog Technologies, LLC <rj@wiredogvpn.com>",
+    "vendor": "WireDog VPN"
+  },
+  "deb": {
+    "packageName": "wiredog-vpn",
+    "depends": [
+      "iptables",
+      "nodejs (>= 18.0.0)"
+    ],
+    "afterInstall": "debian/postinst",
+    "afterRemove": "debian/prerm"
+  },
+  "rpm": {
+    "packageName": "wiredog-vpn",
+    "depends": [
+      "iptables",
+      "nodejs >= 18"
+    ],
+    "afterInstall": "rpm/postinst",
+    "afterRemove": "rpm/prerm"
+  },
+  "pacman": {
+    "packageName": "wiredog-vpn",
+    "depends": [
+      "iptables",
+      "nodejs"
+    ],
+    "afterInstall": "pacman/wiredog-vpn.install"
+  }
+}

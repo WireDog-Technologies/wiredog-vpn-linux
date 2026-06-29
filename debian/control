@@ -1,0 +1,20 @@
+Package: wiredog-vpn
+Version: 2.0.0
+Section: net
+Priority: optional
+Architecture: amd64
+Depends: iptables, nodejs (>= 18.0.0)
+Maintainer: Team WireDog <rj@wiredogvpn.com>
+Homepage: https://wiredogvpn.com
+Description: WireDog VPN - Privacy, Freedom, Trust
+ WireDog VPN is a premium VPN application providing secure,
+ private internet access. Features include:
+ .
+  - WireGuard protocol for fast, secure connections
+  - Kill switch to prevent traffic leaks
+  - DNS leak protection
+  - IPv6 leak protection
+  - Easy-to-use desktop interface
+ .
+ This package installs the WireDog VPN desktop application
+ and its background service for managing VPN connections.
