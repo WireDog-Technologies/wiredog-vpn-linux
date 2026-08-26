@@ -47,6 +47,11 @@ export interface VPNSettings {
   splitTunneling: SplitTunnelingConfig;
   ipv6Enabled?: boolean;
   ipv6LeakProtection?: boolean;
+  // Guardian Mode — DNS-level ad/malware blocking, resolved server-side per connection
+  // (see resolveDnsAddresses in the backend's vpn.ts) based on these two flags sent with
+  // every /vpn/connect request.
+  blockAdsEnabled?: boolean;
+  blockMalwareEnabled?: boolean;
 }
 
 export interface User {
@@ -64,6 +69,10 @@ export interface User {
 export interface VPNConnectionResult {
   sessionId: number;
   assignedIp: string;
+  // Backend-assigned per-session SNAT exit IP (backend's server.exitIp) — this is what
+  // external services actually see once the tunnel is active. server.ipAddress below is the
+  // VPN server's own address, not what the user's traffic appears to come from.
+  publicIp?: string;
   connectedAt: string;
   server: {
     city: string;
@@ -76,6 +85,7 @@ export interface VPNStatusUpdate {
   status: ConnectionStatus;
   session: VPNConnectionResult | null;
   killSwitchEnabled: boolean;
+  isReconnecting?: boolean;
 }
 
 export interface VPNStats {
@@ -89,7 +99,8 @@ declare global {
     electronAPI?: {
       vpn: {
         connect: (serverId: string, settings: VPNSettings) => Promise<VPNConnectionResult>;
-        disconnect: () => Promise<{ success: boolean }>;
+        cancelConnect: () => Promise<{ success: boolean }>;
+        disconnect: (options?: { disableProtection?: boolean }) => Promise<{ success: boolean }>;
         getStatus: () => Promise<VPNStatusUpdate>;
         getStats: () => Promise<VPNStats | null>;
         onStatusChange: (callback: (status: VPNStatusUpdate) => void) => () => void;

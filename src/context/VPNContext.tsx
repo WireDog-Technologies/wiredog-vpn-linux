@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useCallback, useEffect, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useCallback, useEffect, useRef, ReactNode } from 'react';
 import { ConnectionInfo, ConnectionStatus, VPNSettings, ServerLocation, User, Protocol, SplitTunnelingConfig } from '@/types/vpn';
 import * as api from '@/lib/api';
 import { getServerById } from '@/data/servers';
@@ -9,18 +9,32 @@ interface VPNContextType {
   settings: VPNSettings;
   user: User | null;
   selectedServer: ServerLocation | null;
+  isSwitchingServer: boolean;
   isAuthenticated: boolean;
   isAuthLoading: boolean;
   isSubscriptionActive: boolean;
   advancedKillSwitchActive: boolean;
-  connect: (server: ServerLocation) => Promise<void>;
+  connectionError: string | null;
+  connect: (server: ServerLocation, options?: { silent?: boolean }) => Promise<void>;
+  cancelConnect: () => Promise<void>;
   disconnect: (options?: { disableProtection?: boolean }) => Promise<void>;
   reconnect: () => Promise<void>;
   updateSettings: (settings: Partial<VPNSettings>) => void;
   setSelectedServer: (server: ServerLocation | null) => void;
+  selectServer: (server: ServerLocation) => void;
   login: (email: string, password: string) => Promise<void>;
   anonymousLogin: (accountNumber: string) => Promise<void>;
   logout: () => void;
+  clearConnectionError: () => void;
+}
+
+// Electron's ipcRenderer.invoke() wraps a rejected handler's error as
+// `Error invoking remote method '<channel>': Error: <original message>` — strip that
+// wrapper so the UI shows the clean message the main process actually threw.
+const IPC_ERROR_WRAPPER = /^Error invoking remote method '[^']*':\s*(?:Error:\s*)?/;
+function extractErrorMessage(error: unknown, fallback: string): string {
+  if (!(error instanceof Error)) return fallback;
+  return error.message.replace(IPC_ERROR_WRAPPER, '');
 }
 
 const defaultConnection: ConnectionInfo = {
@@ -47,6 +61,8 @@ const defaultSettings: VPNSettings = {
   splitTunneling: defaultSplitTunneling,
   ipv6Enabled: true,
   ipv6LeakProtection: true,
+  blockAdsEnabled: true,
+  blockMalwareEnabled: true,
 };
 
 const VPNContext = createContext<VPNContextType | undefined>(undefined);
@@ -79,8 +95,14 @@ export const VPNProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const [settings, setSettings] = useState<VPNSettings>(defaultSettings);
   const [user, setUser] = useState<User | null>(null);
   const [selectedServer, setSelectedServer] = useState<ServerLocation | null>(null);
+  // True while a server switch is tearing down the old tunnel before bringing up the new
+  // one — lets the UI treat that whole disconnect-old -> connect-new sequence as one
+  // continuous "in progress" state instead of flickering through the intermediate
+  // connected/disconnected values connection.status genuinely passes through.
+  const [isSwitchingServer, setIsSwitchingServer] = useState(false);
   const [isAuthLoading, setIsAuthLoading] = useState(true);
   const [advancedKillSwitchActive, setAdvancedKillSwitchActive] = useState(false);
+  const [connectionError, setConnectionError] = useState<string | null>(null);
 
   // Load settings from electron-store on mount
   useEffect(() => {
@@ -132,11 +154,22 @@ export const VPNProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     checkAuth();
   }, []);
 
-  const connect = useCallback(async (server: ServerLocation) => {
+  // Forces a clean logout when the backend has rejected the auth token (expired or
+  // invalid). Clears the local session only; there's no point calling the authenticated
+  // /auth/logout endpoint with a token the backend has already rejected. Clearing `user`
+  // routes back to the login screen via the existing isAuthenticated-gated routing in App.tsx.
+  const handleUnauthorized = useCallback(async () => {
+    await window.electronAPI?.auth?.clearToken?.();
+    setUser(null);
+    setConnectionError('Your session has expired. Please sign in again.');
+  }, []);
+
+  const connect = useCallback(async (server: ServerLocation, options?: { silent?: boolean }) => {
     if (!checkSubscriptionActive(user)) {
       throw new Error('An active subscription is required to connect.');
     }
 
+    setConnectionError(null);
     setConnection(prev => ({ ...prev, status: 'connecting', server }));
 
     try {
@@ -147,7 +180,7 @@ export const VPNProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         setConnection({
           status: 'connected',
           server,
-          ipAddress: result.server?.ipAddress || '',
+          ipAddress: result.publicIp || result.server?.ipAddress || '',
           sessionStart: new Date(result.connectedAt),
           dataIn: 0,
           dataOut: 0,
@@ -166,11 +199,34 @@ export const VPNProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         });
       }
     } catch (error) {
-      console.error('VPN connection failed:', error);
       setConnection(defaultConnection);
+      const message = extractErrorMessage(error, 'Failed to connect to VPN.');
+      if (message === 'Connection cancelled') {
+        // User-initiated cancel (tap-again-to-cancel) — expected, not a failure. No error toast.
+        return;
+      }
+      if (message === 'WIREDOG_UNAUTHORIZED') {
+        // Token expired/invalid — force a clean logout instead of leaving the user stuck
+        // on a raw "Invalid token" toast while still shown as signed in.
+        console.warn('VPN connection failed: session expired, logging out');
+        await handleUnauthorized();
+        return;
+      }
+      console.error('VPN connection failed:', error);
+      if (!options?.silent) {
+        setConnectionError(message);
+      }
       throw error;
     }
-  }, [settings, user]);
+  }, [settings, user, handleUnauthorized]);
+
+  /** Cancels an in-flight connect attempt — a first attempt or an in-progress auto-reconnect. */
+  const cancelConnect = useCallback(async () => {
+    if (connection.status !== 'connecting') return;
+    if (window.electronAPI?.vpn?.cancelConnect) {
+      await window.electronAPI.vpn.cancelConnect();
+    }
+  }, [connection.status]);
 
   const disconnect = useCallback(async (options?: { disableProtection?: boolean }) => {
     setConnection(prev => ({ ...prev, status: 'connecting' }));
@@ -205,6 +261,71 @@ export const VPNProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     }
   }, [connection.server, disconnect, connect]);
 
+  // Ref mirrors connection.status synchronously so switchServer's wait-loop below can poll
+  // the latest value without depending on a stale closure.
+  const connectionStatusRef = useRef(connection.status);
+  useEffect(() => {
+    connectionStatusRef.current = connection.status;
+  }, [connection.status]);
+
+  // Waits for connection.status to settle at 'disconnected' (e.g. after a server-switch
+  // disconnect), bounded by a timeout so a stuck tunnel teardown can't hang forever.
+  const waitForDisconnected = useCallback((timeoutMs = 8000): Promise<boolean> => {
+    return new Promise(resolve => {
+      const start = Date.now();
+      const check = () => {
+        if (connectionStatusRef.current === 'disconnected') {
+          resolve(true);
+          return;
+        }
+        if (Date.now() - start >= timeoutMs) {
+          resolve(false);
+          return;
+        }
+        setTimeout(check, 100);
+      };
+      check();
+    });
+  }, []);
+
+  // Tears down whatever's currently active and connects to `server` — the actual
+  // disconnect-old-then-connect-new sequence behind quick server switching.
+  const switchServer = useCallback(async (server: ServerLocation) => {
+    setIsSwitchingServer(true);
+    try {
+      if (connection.status === 'connecting') {
+        await cancelConnect();
+      } else if (connection.status === 'connected' || connection.status === 'error') {
+        // Keep Always-On protection active through the switch rather than dropping to fully
+        // disabled — matches the "Stay Protected" choice a manual disconnect would prompt for.
+        await disconnect({ disableProtection: !settings.permanentKillSwitch });
+      }
+
+      const settled = await waitForDisconnected();
+      if (!settled) {
+        setConnectionError('Unable to switch servers. Please try again.');
+        return;
+      }
+
+      await connect(server);
+    } finally {
+      setIsSwitchingServer(false);
+    }
+  }, [connection.status, settings.permanentKillSwitch, cancelConnect, disconnect, connect, waitForDisconnected]);
+
+  // Selecting a server while connected/connecting/in an error state immediately switches to
+  // it — no separate disconnect step required. Selecting while disconnected just updates the
+  // highlight, same as before; the user still hits Connect for that one.
+  const selectServer = useCallback((server: ServerLocation) => {
+    const isSameServer = server.id === selectedServer?.id;
+    setSelectedServer(server);
+
+    const isActive = connection.status === 'connected' || connection.status === 'connecting' || connection.status === 'error';
+    if (isActive && !isSameServer) {
+      switchServer(server);
+    }
+  }, [selectedServer, connection.status, switchServer]);
+
   // Listen for VPN status changes from Electron
   useEffect(() => {
     if (window.electronAPI?.vpn) {
@@ -230,7 +351,7 @@ export const VPNProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
             return {
               status: 'connected',
               server,
-              ipAddress: backendServer?.ipAddress || prev.ipAddress || '',
+              ipAddress: status.session.publicIp || backendServer?.ipAddress || prev.ipAddress || '',
               sessionStart: status.session.connectedAt ? new Date(status.session.connectedAt) : prev.sessionStart,
               dataIn: 0,
               dataOut: 0,
@@ -275,7 +396,7 @@ export const VPNProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         // Small delay to let UI settle
         await new Promise(resolve => setTimeout(resolve, 500));
 
-        await connect(server);
+        await connect(server, { silent: true });
       } catch (error) {
         console.error('Auto-connect failed:', error);
         // Silently fail - don't interrupt user
@@ -341,12 +462,13 @@ export const VPNProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   }, []);
 
   const logout = useCallback(async () => {
-    if (connection.status === 'connected') {
-      disconnect();
-    }
     await api.logout();
     setUser(null);
-  }, [connection.status, disconnect]);
+  }, []);
+
+  const clearConnectionError = useCallback(() => {
+    setConnectionError(null);
+  }, []);
 
   return (
     <VPNContext.Provider
@@ -355,18 +477,23 @@ export const VPNProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         settings,
         user,
         selectedServer,
+        isSwitchingServer,
         isAuthenticated: !!user,
         isAuthLoading,
         isSubscriptionActive: checkSubscriptionActive(user),
         advancedKillSwitchActive,
+        connectionError,
         connect,
+        cancelConnect,
         disconnect,
         reconnect,
         updateSettings,
         setSelectedServer,
+        selectServer,
         login,
         anonymousLogin,
         logout,
+        clearConnectionError,
       }}
     >
       {children}

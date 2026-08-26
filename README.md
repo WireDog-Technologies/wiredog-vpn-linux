@@ -48,19 +48,49 @@ cd service && npm install && cd ..
 npm run build:service
 ```
 
-### 4. Start the app (frontend + Electron)
+### 4. Configure environment (optional)
+
+API/frontend URLs come from `.env.development` (integration — used by `npm run dev` and
+`npm run build:integration`) and `.env.production` (production — used by
+`npm run build:production`). Both are gitignored, not committed — create them yourself at the
+repo root, same two keys in each:
+
+```bash
+# .env.development
+VITE_API_URL=https://intapi.wiredogvpn.com/api
+VITE_FRONTEND_URL=https://int.wiredogvpn.com
+
+# .env.production
+VITE_API_URL=https://api.wiredogvpn.com/api
+VITE_FRONTEND_URL=https://wiredogvpn.com
+```
+
+Confirm the integration hostname with a teammate if you're not sure it's current.
+
+`.env.local` is only needed to override a URL locally (e.g. pointing at a backend running on
+localhost instead of integration):
+
+```bash
+cp .env.local.example .env.local
+# Edit .env.local and uncomment/fill in what you need
+```
+
+### 5. Start the app (frontend + Electron)
 
 ```bash
 npm run dev
 ```
 
-### 5. Start the backend service in a separate terminal (required for VPN functionality)
+Runs against the **integration** backend/frontend (`.env.development`) by default. Override
+via `.env.local` if you need to point at something else (e.g. a local backend).
+
+### 6. Start the backend service in a separate terminal (required for VPN functionality)
 
 ```bash
 sudo NODE_ENV=development node service/dist/index.js
 ```
 
-### 6. Rebuild the service after changes to `service/src/`
+### 7. Rebuild the service after changes to `service/src/`
 
 ```bash
 cd service && npm run build
@@ -77,9 +107,22 @@ npm run build:production
 This runs all steps in sequence:
 1. Compiles the backend service TypeScript (`service/dist/index.js`)
 2. Bundles the Vite/React frontend (`dist/`)
-3. Packages everything into a `.deb` via electron-builder
+3. Bakes `.env.production` into the root `.env` (read by the packaged app at startup)
+4. Packages everything into a `.deb`/`.rpm`/pacman/AppImage via electron-builder
 
 Output: `release/WireDog-VPN-<version>.deb`
+
+### Building Against Integration
+
+```bash
+npm run build:integration
+```
+
+Builds the frontend in Vite's `development` mode (loads `.env.development`) instead of
+bundling against production, and bakes `.env.development` into the root `.env`. Same signing
+identity as a production build — only the baked-in API/frontend URLs differ. The output
+artifact is named `WireDog-VPN-Test-*` so it's never confused with a real release sitting in
+`release/`.
 
 ## Project Structure
 

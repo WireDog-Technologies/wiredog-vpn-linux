@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { User, LogOut, Hash, ChevronLeft, Bug, FileText, HistoryIcon, HelpCircle } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
@@ -6,6 +6,7 @@ import { Card } from '@/components/ui/card';
 
 import { Separator } from '@/components/ui/separator';
 import { useVPN } from '@/context/VPNContext';
+import BlockedActionDialog from '@/components/BlockedActionDialog';
 const formatBillingPeriod = (period: string): string => {
   return period
     .replace(/(\d+)\s*([a-zA-Z]+)/, (_, num, word) => `${num} ${word.charAt(0).toUpperCase()}${word.slice(1).toLowerCase()}`);
@@ -13,9 +14,14 @@ const formatBillingPeriod = (period: string): string => {
 
 const Account: React.FC = () => {
   const navigate = useNavigate();
-  const { user, logout } = useVPN();
+  const { user, connection, logout } = useVPN();
+  const [showLogoutBlockedDialog, setShowLogoutBlockedDialog] = useState(false);
 
   const handleLogout = () => {
+    if (connection.status === 'connected' || connection.status === 'connecting') {
+      setShowLogoutBlockedDialog(true);
+      return;
+    }
     logout();
     navigate('/');
   };
@@ -253,6 +259,13 @@ const Account: React.FC = () => {
           Logout
         </Button>
       </div>
+
+      <BlockedActionDialog
+        open={showLogoutBlockedDialog}
+        title="Disconnect Required"
+        message="Please disconnect the VPN before signing out."
+        onDismiss={() => setShowLogoutBlockedDialog(false)}
+      />
     </div>
   );
 };

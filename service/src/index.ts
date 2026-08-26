@@ -2,9 +2,9 @@ import logger from './utils/logger';
 import unixSocketServer from './ipc/unix-socket-server';
 import { handleMessage } from './ipc/json-rpc-handler';
 import wireguardManager from './tunnel/wireguard-manager';
+import { SERVICE_VERSION } from './version';
 
 const SERVICE_NAME = 'WireDog VPN Service';
-const SERVICE_VERSION = '2.0.0';
 
 /**
  * Graceful shutdown handler

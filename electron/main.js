@@ -10,23 +10,34 @@ const log = require('electron-log');
 
 // Determine path to .env correctly for dev vs packaged app
 const projectRoot = app.isPackaged ? process.resourcesPath : path.join(__dirname, '..');
-const envPath = path.join(projectRoot, '.env');
 
-// Load base .env first
+// A packaged build's baked config lives at resourcesPath/.env — whatever
+// `npm run bake-env:production` / `bake-env:integration` copied there before
+// electron-builder ran (see package.json and electron-builder.json's extraResources).
+// An unpackaged run (`npm run dev`, the Linux equivalent of "just run it") always defaults
+// to .env.development (integration) instead, mirroring iOS's Debug config always hitting
+// integration — Vite handles the equivalent split for the renderer bundle automatically via
+// its own build-mode env file convention (see build:dev / build:integration in package.json).
+const envPath = app.isPackaged
+  ? path.join(projectRoot, '.env')
+  : path.join(projectRoot, '.env.development');
+
 if (fs.existsSync(envPath)) {
   dotenv.config({ path: envPath, quiet: true });
-  log.info('Loaded .env from', envPath);
+  log.info('Loaded environment config from', envPath);
+} else if (app.isPackaged) {
+  log.warn('No baked environment config found at', envPath, '— falling back to hardcoded production defaults');
 } else {
-  log.warn('No .env file found at', envPath);
+  log.warn('No .env.development found at', envPath, '— falling back to hardcoded production defaults');
 }
 
-// In development, load .env.development to override production values
-const isDevelopment = process.env.NODE_ENV === 'development' || !app.isPackaged;
-if (isDevelopment) {
-  const devEnvPath = path.join(projectRoot, '.env.development');
-  if (fs.existsSync(devEnvPath)) {
-    dotenv.config({ path: devEnvPath, override: true });
-    log.info('Loaded .env.development from', devEnvPath);
+// Local developer override (gitignored, never shipped) — see .env.local.example.
+// Not consulted in packaged builds; dev-only escape hatch (e.g. pointing at a local backend).
+if (!app.isPackaged) {
+  const localEnvPath = path.join(projectRoot, '.env.local');
+  if (fs.existsSync(localEnvPath)) {
+    dotenv.config({ path: localEnvPath, override: true });
+    log.info('Loaded local overrides from', localEnvPath);
   }
 }
 
@@ -146,6 +157,12 @@ function createMainWindow() {
   // Handle window closed
   mainWindow.on('closed', () => {
     mainWindow = null;
+  });
+
+  // Retries any /vpn/disconnect calls still owed from a previous launch/session — see
+  // VPNService.handleAppForeground / retryPendingDisconnects.
+  mainWindow.on('focus', () => {
+    vpnService.handleAppForeground();
   });
 
   // Prevent new window creation
@@ -790,6 +807,11 @@ function setupIpcHandlers() {
     }
   });
 
+  ipcMain.handle('vpn:cancel-connect', () => {
+    vpnService.cancelConnect();
+    return { success: true };
+  });
+
   ipcMain.handle('vpn:disconnect', async (_, options = {}) => {
     const disableProtection = options?.disableProtection !== false; // default true
     log.info('VPN disconnect request', { disableProtection, options });
@@ -1123,10 +1145,20 @@ async function initializeSettingsStore() {
         killSwitch: false,
         autoConnect: false,
         splitTunneling: false,
+        blockAdsEnabled: true,
+        blockMalwareEnabled: true,
         lastServerId: null,
         authToken: null
       }
     });
+    try { vpnService.setConfigStore(settingsStore); } catch (err) {
+      log.warn('VPN: setConfigStore failed:', err.message);
+    }
+    // Lets VPNService fetch a fresh token itself for auto-reconnect and pending-disconnect
+    // retries, which originate internally rather than from an IPC call carrying a token.
+    try { vpnService.setAuthTokenProvider(() => settingsStore.get('authToken')); } catch (err) {
+      log.warn('VPN: setAuthTokenProvider failed:', err.message);
+    }
     log.info('Settings store initialized');
   } catch (error) {
     log.error('Failed to initialize settings store:', error);
@@ -1482,9 +1514,9 @@ app.whenReady().then(async () => {
       log.info('VPN Service is ready');
 
       // Crash recovery: if a prior session token is cached but the tunnel is down,
-      // tell the backend to decrement the connection counter.
-      const authToken = settingsStore.get('authToken');
-      await vpnService.performStartupCleanup(authToken);
+      // tell the backend to decrement the connection counter. Also retries any
+      // pending-disconnect ledger entries left over from a previous launch.
+      await vpnService.performStartupCleanup();
     } catch (error) {
       log.warn('VPN Service startup:', error.message);
       // Don't block app startup if service fails - user can still connect manually

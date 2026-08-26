@@ -2,9 +2,8 @@ import logger from '../utils/logger';
 import wireguardManager from '../tunnel/wireguard-manager';
 import killSwitchManager from '../firewall/kill-switch-manager';
 import splitTunnelManager from '../split-tunnel/split-tunnel-manager';
+import { SERVICE_VERSION } from '../version';
 
-// Service version
-const SERVICE_VERSION = '2.0.0';
 const startTime = Date.now();
 
 // Current session state

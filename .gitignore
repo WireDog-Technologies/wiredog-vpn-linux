@@ -30,6 +30,7 @@ build/
 venv/
 .env
 .env.*
+!.env.local.example
 .venv/
 pip-wheel-metadata/
 __pypackages__/
