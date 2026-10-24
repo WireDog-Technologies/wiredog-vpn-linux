@@ -28,7 +28,18 @@ export interface ServerLocation {
   load: number;
   recommended?: boolean;
   host: string;
+  // Organization gateway entry (a named Dedicated IP). Undefined for a normal server.
+  gatewayId?: number;
+  gatewayName?: string;
+  // The node's real server id when `id` is the composite "<serverId>_gw<gatewayId>" list id.
+  apiServerId?: string;
 }
+
+/** What /vpn/connect takes as `serverId`. For a gateway entry `id` is a composite list id. */
+export const getConnectServerId = (server: ServerLocation): string => server.apiServerId ?? server.id;
+
+export const isDedicatedServer = (server: ServerLocation | null | undefined): boolean =>
+  server?.gatewayId !== undefined && server?.gatewayId !== null;
 
 export interface ConnectionInfo {
   status: ConnectionStatus;
@@ -54,6 +65,10 @@ export interface VPNSettings {
   blockMalwareEnabled?: boolean;
 }
 
+// Where the account stands with an organization. 'inactive': the org's own subscription lapsed
+// (the seat is intact). 'revoked': an admin removed this person. Unknown values decode as 'active'.
+export type OrganizationAccess = 'active' | 'inactive' | 'revoked';
+
 export interface User {
   id: string;
   username?: string;
@@ -63,6 +78,25 @@ export interface User {
   billingPeriod?: string;
   subscriptionStarted?: Date;
   subscriptionExpiry?: Date;
+  // /auth/me isActive. For an organization seat this is what carries entitlement, since the
+  // seat can have no expiry date of its own.
+  isActive: boolean;
+  // Business / organization state, all from /auth/me.
+  totpEnabled: boolean;
+  twoFactorRequiredByOrg: boolean;
+  mustChangePassword: boolean;
+  subscriptionManagedByOrganization: boolean;
+  organizationName?: string;
+  organizationRole?: string;
+  organizationAccess?: OrganizationAccess;
+}
+
+// Currently published Privacy Policy / Terms of Service versions. Opaque strings, only compared
+// for equality against what the user last accepted.
+export interface LegalVersions {
+  privacyVersion: string;
+  termsVersion: string;
+  summary?: string | null;
 }
 
 // Electron VPN API types
@@ -98,7 +132,7 @@ declare global {
   interface Window {
     electronAPI?: {
       vpn: {
-        connect: (serverId: string, settings: VPNSettings) => Promise<VPNConnectionResult>;
+        connect: (serverId: string, settings: VPNSettings, gatewayId?: number) => Promise<VPNConnectionResult>;
         cancelConnect: () => Promise<{ success: boolean }>;
         disconnect: (options?: { disableProtection?: boolean }) => Promise<{ success: boolean }>;
         getStatus: () => Promise<VPNStatusUpdate>;
@@ -108,7 +142,18 @@ declare global {
       };
       getInstalledApps: () => Promise<SplitTunnelApp[]>;
       browseForApp: () => Promise<SplitTunnelApp | null>;
+      // Resolves to {} (and measures nothing) while the tunnel is up or coming up: probes made
+      // then are routed through the connected server and come back inflated.
       measureLatency: (servers: Array<{ id: string; host: string }>) => Promise<Record<string, number>>;
+      // Business SSO: opens the browser to the organization's identity provider and resolves with
+      // the one-time code (bound to a PKCE verifier only the main process holds) once the
+      // wiredog://sso callback arrives. Rejects with 'SSO_CANCELLED' | 'SSO_NO_ACCOUNT' | 'SSO_FAILED'.
+      sso: {
+        authenticate: (domain: string) => Promise<{ code: string; codeVerifier: string }>;
+        cancel: () => Promise<void>;
+      };
+      // Published Privacy Policy / Terms of Service versions from /app/config (null if unavailable).
+      getLegalConfig: () => Promise<LegalVersions | null>;
       // Window controls
       minimizeWindow: () => Promise<void>;
       maximizeWindow: () => Promise<void>;

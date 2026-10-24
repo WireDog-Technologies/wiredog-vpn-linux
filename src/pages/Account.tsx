@@ -6,6 +6,8 @@ import { Card } from '@/components/ui/card';
 
 import { Separator } from '@/components/ui/separator';
 import { useVPN } from '@/context/VPNContext';
+import { dashboardHandoffUrl } from '@/lib/api';
+import { lostOrganizationAccess } from '@/lib/account';
 import BlockedActionDialog from '@/components/BlockedActionDialog';
 const formatBillingPeriod = (period: string): string => {
   return period
@@ -16,6 +18,26 @@ const Account: React.FC = () => {
   const navigate = useNavigate();
   const { user, connection, logout } = useVPN();
   const [showLogoutBlockedDialog, setShowLogoutBlockedDialog] = useState(false);
+
+  // Organization seats are paid for and managed by the employer: the plan row says so instead of
+  // showing a personal renewal countdown.
+  const organizationName = user?.subscriptionManagedByOrganization
+    ? (user.organizationName ?? 'your organization')
+    : null;
+  // Set when an organization used to cover this account and no longer does.
+  const lostAccess = lostOrganizationAccess(user);
+  const isOrgManaged = organizationName !== null || lostAccess !== null;
+
+  // Opens the website dashboard already signed in via a one-time handoff code. Falls back to the
+  // plain dashboard URL (which asks the user to sign in) if the code can't be minted.
+  const openDashboard = async () => {
+    const url = await dashboardHandoffUrl();
+    if (window.electronAPI?.openExternal) {
+      window.electronAPI.openExternal(url);
+    } else {
+      window.open(url, '_blank');
+    }
+  };
 
   const handleLogout = () => {
     if (connection.status === 'connected' || connection.status === 'connecting') {
@@ -98,11 +120,20 @@ const Account: React.FC = () => {
             <div className="grid grid-cols-2 gap-4">
               <div className="p-4 rounded-lg bg-muted/50">
                 <p className="text-sm text-muted-foreground mb-1">Plan</p>
-                <p className="font-medium capitalize">
-                  {user.subscriptionTier !== 'free' ? 'Active' : 'Inactive'}{user.billingPeriod ? ` - ${formatBillingPeriod(user.billingPeriod)}` : ''}
-                </p>
+                {lostAccess ? (
+                  <p className="font-medium text-red-400">
+                    {lostAccess === 'inactive' ? 'Organization plan inactive' : 'Organization access removed'}
+                  </p>
+                ) : organizationName ? (
+                  <p className="font-medium">Covered by {organizationName}</p>
+                ) : (
+                  <p className="font-medium capitalize">
+                    {user.subscriptionTier !== 'free' ? 'Active' : 'Inactive'}{user.billingPeriod ? ` - ${formatBillingPeriod(user.billingPeriod)}` : ''}
+                  </p>
+                )}
               </div>
 
+              {!isOrgManaged && (
               <div className="p-4 rounded-lg bg-muted/50">
                 <p className="text-sm text-muted-foreground mb-1">Time Remaining</p>
                 <p className="font-medium">
@@ -113,22 +144,16 @@ const Account: React.FC = () => {
                     : '0 days left'}
                 </p>
               </div>
+              )}
             </div>
 
             {!user.isAnonymous && (
               <Button
                 variant="outline"
                 className="w-full mt-4"
-                onClick={() => {
-                  const accountUrl = import.meta.env.VITE_ACCOUNT_URL;
-                  if (window.electronAPI?.openExternal) {
-                    window.electronAPI.openExternal(accountUrl);
-                  } else {
-                    window.open(accountUrl, '_blank');
-                  }
-                }}
+                onClick={openDashboard}
               >
-                Manage Subscription
+                Manage Account
               </Button>
             )}
           </div>

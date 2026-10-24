@@ -34,7 +34,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // VPN operations
   vpn: {
     checkDependencies: () => ipcRenderer.invoke('vpn:check-dependencies'),
-    connect: (serverId, settings) => ipcRenderer.invoke('vpn:connect', { serverId, settings }),
+    connect: (serverId, settings, gatewayId) => ipcRenderer.invoke('vpn:connect', { serverId, settings, gatewayId }),
     cancelConnect: () => ipcRenderer.invoke('vpn:cancel-connect'),
     disconnect: (options) => ipcRenderer.invoke('vpn:disconnect', options),
     getStatus: () => ipcRenderer.invoke('vpn:get-status'),
@@ -80,6 +80,15 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // Latency measurement
   measureLatency: (servers) => ipcRenderer.invoke('latency:measure-servers', servers),
+
+  // Business SSO (browser sign-in, resolved by the wiredog://sso callback)
+  sso: {
+    authenticate: (domain) => ipcRenderer.invoke('sso:authenticate', domain),
+    cancel: () => ipcRenderer.invoke('sso:cancel'),
+  },
+
+  // Published Privacy Policy / Terms of Service versions
+  getLegalConfig: () => ipcRenderer.invoke('legal:get-config'),
 
   // Application browsing (for split tunneling)
   getInstalledApps: () => ipcRenderer.invoke('app:get-installed-apps'),

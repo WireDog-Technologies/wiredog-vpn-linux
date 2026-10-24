@@ -53,6 +53,7 @@
   "linux": {
     "icon": "build/icons",
     "category": "Network",
+    "mimeTypes": ["x-scheme-handler/wiredog"],
     "target": [
       {
         "target": "deb",
